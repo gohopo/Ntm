@@ -1,0 +1,29 @@
+services:
+  ntm:
+    image: gohopo/ntm:latest
+    restart: unless-stopped
+    # 停机时网关先等进行中的请求最多 30 秒，再中断剩下的、把记录写完（Q343），所以给足 50 秒。
+    stop_grace_period: 50s
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "5"
+    ports:
+      - "8080:8080"
+    environment:
+      # 网关时区：渠道的「每日」费用上限和可用时段按它算。改了要重启。
+      TZ: Asia/Shanghai
+      # 首次启动时的管理员密码，至少 12 个字符；只在库里还没有管理员时生效。
+      # 不设的话随机生成一个，打印在启动日志里，只显示这一次。
+      # NTM_ADMIN_PASSWORD: "换成你自己的密码"
+      # 放在 HTTPS 反向代理后面时，列出代理的 IP 或 CIDR（逗号分隔），
+      # 只有来自它们的 X-Forwarded-Proto / X-Forwarded-For 才被采信。
+      # 不设的话，管理员 cookie 在反代后面不会带 Secure，登录限流也只看得到代理的地址。
+      # NTM_TRUSTED_PROXIES: "172.16.0.0/12"
+    volumes:
+      # 两个库和 Data Protection 密钥环都在这里，一起备份。只能是本地盘：SQLite 的 WAL 在网络文件系统上不工作。
+      - ntm-data:/app/data
+
+volumes:
+  ntm-data:

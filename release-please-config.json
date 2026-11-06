@@ -1,0 +1,74 @@
+{
+  "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
+  "packages": {
+    ".": {
+      "release-type": "simple",
+      "package-name": "ntm",
+      "include-component-in-tag": false,
+      "include-v-in-tag": true,
+      "skip-changelog": true,
+      "initial-version": "0.1.0",
+      "bump-minor-pre-major": true,
+      "bump-patch-for-minor-pre-major": true,
+      "pull-request-title-pattern": "chore: 发布 ${version}",
+      "changelog-sections": [
+        {
+          "type": "feat",
+          "section": "新功能"
+        },
+        {
+          "type": "fix",
+          "section": "修复"
+        },
+        {
+          "type": "perf",
+          "section": "性能"
+        },
+        {
+          "type": "revert",
+          "section": "撤回"
+        },
+        {
+          "type": "refactor",
+          "section": "重构"
+        },
+        {
+          "type": "docs",
+          "section": "文档"
+        },
+        {
+          "type": "deps",
+          "section": "依赖"
+        },
+        {
+          "type": "test",
+          "section": "测试",
+          "hidden": true
+        },
+        {
+          "type": "build",
+          "section": "构建",
+          "hidden": true
+        },
+        {
+          "type": "ci",
+          "section": "持续集成",
+          "hidden": true
+        },
+        {
+          "type": "chore",
+          "section": "杂项",
+          "hidden": true
+        },
+        {
+          "type": "style",
+          "section": "格式",
+          "hidden": true
+        }
+      ],
+      "extra-files": [
+        "compose.yaml"
+      ]
+    }
+  }
+}

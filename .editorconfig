@@ -1,0 +1,21 @@
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+indent_style = space
+trim_trailing_whitespace = true
+
+[*.{cs,csproj,props,targets,slnx}]
+indent_size = 4
+
+[*.{json,yml,yaml,md,ts,js,svelte}]
+indent_size = 2
+
+# EF Core 生成的迁移文件不按手写代码的规则要求。
+# 这里只关生成器实际会触发的规则，手写代码仍然全量检查。
+[src/*/Data/Migrations/**/*.cs]
+dotnet_diagnostic.CA1861.severity = none
+dotnet_diagnostic.IDE0300.severity = none
+dotnet_diagnostic.IDE0301.severity = none

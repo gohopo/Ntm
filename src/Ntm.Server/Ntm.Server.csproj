@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <ItemGroup>
+    <ProjectReference Include="../Ntm.Gateway/Ntm.Gateway.csproj" />
+  </ItemGroup>
+
+  <!-- dotnet ef 需要它来发现 DbContext。 -->
+  <ItemGroup>
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <!-- 进程内集成测试要用到 Program 和几个内部类型。 -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="Ntm.Server.Tests" />
+  </ItemGroup>
+
+</Project>

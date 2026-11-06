@@ -55,3 +55,17 @@ CodeCoverage/
 *.VisualState.xml
 TestResult.xml
 nunit-*.xml
+
+# Node / SvelteKit
+node_modules/
+.svelte-kit/
+.vite/
+apps/*/build/
+apps/*/.output/
+pnpm-debug.log*
+
+# Ntm 运行时数据（两个库 + Data Protection keyring，ADR-0004 / ADR-0006）
+data/
+
+# 前端构建产物落到后端静态目录（Q9）
+src/Ntm.Server/wwwroot/

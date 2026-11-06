@@ -1,0 +1,12 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Ntm.Gateway/Ntm.Gateway.csproj" />
+    <Project Path="src/Ntm.Protocol/Ntm.Protocol.csproj" />
+    <Project Path="src/Ntm.Server/Ntm.Server.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Ntm.Gateway.Tests/Ntm.Gateway.Tests.csproj" />
+    <Project Path="tests/Ntm.Protocol.Tests/Ntm.Protocol.Tests.csproj" />
+    <Project Path="tests/Ntm.Server.Tests/Ntm.Server.Tests.csproj" />
+  </Folder>
+</Solution>

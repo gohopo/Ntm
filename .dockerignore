@@ -1,0 +1,14 @@
+# 构建上下文只要源码和清单；生成物、依赖和运行时数据都不进去。
+.git
+**/bin
+**/obj
+**/node_modules
+**/.svelte-kit
+**/.vite
+apps/*/build
+src/Ntm.Server/wwwroot
+**/data
+tests
+docs
+*.md
+!README.md

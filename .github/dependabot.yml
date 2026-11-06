@@ -1,0 +1,45 @@
+# 依赖更新：每周一次，每个生态合成一个 PR（Q345）。PR 上不跑 CI，合并前请在本地跑一遍测试。
+# 提交信息用约定式前缀，release-please 据此决定要不要发版：进镜像的依赖（nuget、npm、docker）记成 fix(deps)，
+# 只影响流程的 Actions 记成 ci(deps)，不单独触发发版。
+version: 2
+updates:
+  - package-ecosystem: nuget
+    directory: /
+    commit-message:
+      prefix: fix
+      include: scope
+    schedule:
+      interval: weekly
+    groups:
+      nuget:
+        patterns: ['*']
+  - package-ecosystem: npm
+    directory: /
+    commit-message:
+      prefix: fix
+      include: scope
+    schedule:
+      interval: weekly
+    groups:
+      npm:
+        patterns: ['*']
+  - package-ecosystem: github-actions
+    directory: /
+    commit-message:
+      prefix: ci
+      include: scope
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ['*']
+  - package-ecosystem: docker
+    directory: /
+    commit-message:
+      prefix: fix
+      include: scope
+    schedule:
+      interval: weekly
+    groups:
+      docker:
+        patterns: ['*']

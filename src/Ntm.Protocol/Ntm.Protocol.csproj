@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    ADR-0007: Protocol 只依赖 BCL。不引用 ASP.NET，不引用 EF Core。
+    协议转换的测试必须是毫秒级纯函数测试，不能要求起 host 或连数据库。
+    下面这个 target 让这条约束在构建时失败，而不是靠人记住。
+    Microsoft.NETCore.App 是 SDK 隐式加的，不算违规。
+  -->
+  <Target Name="NtmForbidFrameworkDependencies" BeforeTargets="Build">
+
+    <ItemGroup>
+      <NtmForbiddenFramework
+        Include="@(FrameworkReference)"
+        Condition="'%(Identity)' != 'Microsoft.NETCore.App'" />
+      <NtmForbiddenPackage
+        Include="@(PackageReference)"
+        Condition="$([System.String]::Copy('%(Identity)').StartsWith('Microsoft.AspNetCore')) or $([System.String]::Copy('%(Identity)').StartsWith('Microsoft.EntityFrameworkCore'))" />
+    </ItemGroup>
+
+    <Error
+      Condition="'@(NtmForbiddenFramework)' != ''"
+      Text="ADR-0007: Ntm.Protocol 不得带 FrameworkReference（发现 @(NtmForbiddenFramework)）。需要 HttpContext 或 DbContext 的逻辑属于 Ntm.Gateway。" />
+    <Error
+      Condition="'@(NtmForbiddenPackage)' != ''"
+      Text="ADR-0007: Ntm.Protocol 不得引用 ASP.NET Core 或 EF Core（发现 @(NtmForbiddenPackage)）。" />
+    <Error
+      Condition="'@(ProjectReference)' != ''"
+      Text="ADR-0007: Ntm.Protocol 处在依赖链底端，不得引用其他项目（发现 @(ProjectReference)）。" />
+
+  </Target>
+
+</Project>
