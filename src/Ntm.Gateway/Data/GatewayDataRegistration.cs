@@ -15,6 +15,7 @@ public static class GatewayDataRegistration
 
         services.Configure<NtmDataOptions>(configuration.GetSection(NtmDataOptions.SectionName));
         services.AddSingleton<SqlitePragmaInterceptor>();
+        services.AddSingleton<Audit.AuditSaveChangesInterceptor>();
 
         services.AddDbContext<ConfigDbContext>((provider, options) =>
         {
@@ -23,7 +24,9 @@ public static class GatewayDataRegistration
             options.UseSqlite(
                 dataOptions.ConfigConnectionString,
                 sqlite => sqlite.MigrationsAssembly(typeof(ConfigDbContext).Assembly.FullName));
-            options.AddInterceptors(provider.GetRequiredService<SqlitePragmaInterceptor>());
+            options.AddInterceptors(
+                provider.GetRequiredService<SqlitePragmaInterceptor>(),
+                provider.GetRequiredService<Audit.AuditSaveChangesInterceptor>());
         });
 
         services.AddDbContext<TrafficDbContext>((provider, options) =>

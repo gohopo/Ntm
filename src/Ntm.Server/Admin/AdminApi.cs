@@ -1,6 +1,8 @@
 namespace Ntm.Server.Admin;
 
-/// <summary>/api 下的管理接口。除了登录相关的几个，全部要求已登录。</summary>
+/// <summary>
+/// /api 下的管理接口。除了登录相关的几个，全部要求已登录，而且生成的密码已经改掉（Q349）。
+/// </summary>
 internal static class AdminApi
 {
     public static IEndpointRouteBuilder MapAdminApi(this IEndpointRouteBuilder endpoints)
@@ -18,6 +20,7 @@ internal static class AdminApi
         api.MapGroup("/live").RequireAuthorization().MapLiveEndpoints();
         api.MapGroup("/model-sync-events").RequireAuthorization().MapModelSyncEventEndpoints();
         api.MapGroup("/workbench").RequireAuthorization().MapWorkbenchEndpoints();
+        api.MapGroup("/audit").RequireAuthorization().MapAuditEndpoints();
         return endpoints;
     }
 }

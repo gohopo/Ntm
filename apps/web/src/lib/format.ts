@@ -174,3 +174,15 @@ export const thinkingStyleLabels: Record<ThinkingStyle, string> = {
 	budget: '预算',
 	adaptive: '自适应'
 };
+
+/** datetime-local 使用浏览器时区，不能直接截 UTC 字符串，否则保存时会偏移时区。 */
+export function toLocalDateTime(value: string | null): string {
+	if (!value) return '';
+	const date = new Date(value);
+	const pad = (n: number) => String(n).padStart(2, '0');
+	return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+}
+
+export function isExpired(value: string | null, now = Date.now()): boolean {
+	return value !== null && new Date(value).getTime() <= now;
+}

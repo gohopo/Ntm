@@ -50,6 +50,10 @@ _Avoid_: ApiToken, Token, ClientKey, 令牌, 访问令牌；不要单说 Key 或
 唯一一个登录管理面板、配置渠道与下发模型的人。它和 ApiKey 是两回事：管理员管配置，ApiKey 只用来调用网关，两者的凭证互不通用。
 _Avoid_: User, Operator, Account, 用户
 
+**AuditEntry**(操作记录):
+管理员的一次管理操作及其结果，说明何时、从哪里、对哪个对象做了什么；登录失败也属于操作记录。它和 Request 记录不同：后者描述客户端或 Workbench 的模型调用，前者描述管理行为。
+_Avoid_: RequestLog, DebugCapture, 请求记录, 请求日志, 调试原文
+
 **Conversation**(对话):
 同一个 ApiKey 对同一个 PublishedModel 发出、且开头内容（system 与第一条消息）相同的一串 Request。Ntm 据此判断多轮对话的延续关系，不依赖客户端传来的标识。
 _Avoid_: Session, Thread, Chat, 会话

@@ -17,6 +17,21 @@ export default defineConfig({
 				runes: ({ filename }) =>
 					filename.split(/[/\\]/).includes('node_modules') ? undefined : true
 			},
+			csp: {
+				mode: 'hash',
+				directives: {
+					'default-src': ['self'],
+					'script-src': ['self'],
+					'style-src': ['self', 'unsafe-inline'],
+					// CSP 支持通配符；Kit 3.1 的 Source 类型漏掉了它，构建仍按标准原样输出。
+					// @ts-expect-error SvelteKit Source omits the CSP wildcard source.
+					'img-src': ['*', 'data:', 'blob:'],
+					'connect-src': ['self'],
+					'object-src': ['none'],
+					'base-uri': ['self'],
+					'form-action': ['self']
+				}
+			},
 			adapter: adapter({ pages: wwwroot, assets: wwwroot, fallback: '200.html', precompress: false })
 		})
 	],

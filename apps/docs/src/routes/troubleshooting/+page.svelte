@@ -31,7 +31,7 @@
 
 <ul>
 	<li>「缺少 API 密钥。」：请求里既没有 <code>Authorization: Bearer</code>，也没有 <code>x-api-key</code>。</li>
-	<li>「API 密钥无效或已过期。」：密钥写错了，或者这个 API 密钥已经删除。完整的密钥只在创建时显示一次，丢了只能新建一个。</li>
+	<li>「API 密钥无效或已过期。」：密钥写错了，或者这个 API 密钥已经停用、删除或到期。完整的密钥只在创建时显示一次，丢了只能新建一个。</li>
 </ul>
 
 <p>上游拒绝渠道密钥时，网关不会把 401 转给客户端，而是换下一把渠道密钥或下一个候选；都失败了客户端看到 502。</p>
@@ -130,6 +130,9 @@
 	<li>
 		页面只显示「管理页面没有构建」：从源码运行时没先构建前端。在仓库根目录运行 <code>pnpm build:web</code>，再重启 Ntm.Server。Docker 镜像里已经构建好了。
 	</li>
+	<li>登录后提示必须改密码：现在用的是网关生成或重置的密码，先按提示改成自己的密码；这不是渠道或 API 密钥失效。</li>
+	<li>管理操作返回 403「跨站请求被拒绝」：直接从管理页面操作，并检查反代是否保留外部 Host 和端口；返回 415 时检查请求体是否使用 <code>application/json</code>。</li>
+	<li>登录或改密码返回 429：按 <code>Retry-After</code> 等待，别连续重试。每个来源或全局失败次数都可能触发限制；已有会话不会因此失效。</li>
 	<li>忘了管理员密码：用 <code>reset-admin-password</code> 命令重置，见<a href={resolve('/deploy') + '#reset-password'}>重置管理员密码</a>。</li>
 	<li>
 		经反向代理访问时登录后马上又要登录，或者登录被限流：检查 <code>NTM_TRUSTED_PROXIES</code>，见<a href={resolve('/deploy') + '#reverse-proxy'}

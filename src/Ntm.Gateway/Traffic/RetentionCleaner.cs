@@ -128,6 +128,30 @@ public sealed partial class RetentionCleaner(
         return total;
     }
 
+    /// <summary>删掉过了保留期的操作记录，返回删了多少条（Q358）。</summary>
+    public async Task<int> DeleteExpiredAuditAsync(CancellationToken cancellationToken)
+    {
+        RetentionOptions settings = options.Value;
+        if (settings.AuditRetentionDays <= 0)
+        {
+            return 0;
+        }
+
+        DateTimeOffset cutoff = timeProvider.GetUtcNow().AddDays(-settings.AuditRetentionDays);
+        await using AsyncServiceScope scope = scopes.CreateAsyncScope();
+        TrafficDbContext db = scope.ServiceProvider.GetRequiredService<TrafficDbContext>();
+        int total = await db.AuditEntries
+            .Where(e => e.OccurredAt < cutoff)
+            .ExecuteDeleteAsync(cancellationToken)
+            .ConfigureAwait(false);
+        if (total > 0)
+        {
+            LogAuditDeleted(logger, total, settings.AuditRetentionDays, null);
+        }
+
+        return total;
+    }
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         using var timer = new PeriodicTimer(Interval, timeProvider);
@@ -137,6 +161,7 @@ public sealed partial class RetentionCleaner(
             {
                 await DeleteExpiredAsync(stoppingToken).ConfigureAwait(false);
                 await DeleteExpiredLandingsAsync(stoppingToken).ConfigureAwait(false);
+                await DeleteExpiredAuditAsync(stoppingToken).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
@@ -169,6 +194,9 @@ public sealed partial class RetentionCleaner(
 
     [LoggerMessage(EventId = 2103, Level = LogLevel.Information, Message = "删掉了 {Count} 条过期或超出上限的响应落点。")]
     private static partial void LogLandingsDeleted(ILogger logger, int count, Exception? exception);
+
+    [LoggerMessage(EventId = 2104, Level = LogLevel.Information, Message = "删掉了 {Count} 条超过 {Days} 天的操作记录。")]
+    private static partial void LogAuditDeleted(ILogger logger, int count, int days, Exception? exception);
 
     [LoggerMessage(EventId = 2102, Level = LogLevel.Warning, Message = "清理过期请求记录失败，一小时后再试。")]
     private static partial void LogFailed(ILogger logger, Exception exception);

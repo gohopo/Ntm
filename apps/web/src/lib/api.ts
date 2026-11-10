@@ -28,6 +28,8 @@ export class ApiError extends Error {
 	}
 }
 
+let passwordRedirect: Promise<void> | null = null;
+
 type Method = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
 
 async function send<T>(method: Method, path: string, body?: unknown): Promise<T> {
@@ -63,6 +65,13 @@ async function send<T>(method: Method, path: string, body?: unknown): Promise<T>
 			problem = (await response.json()) as Problem;
 		} catch {
 			// 不是 JSON（比如反向代理的错误页），用通用说法。
+		}
+		if (response.status === 403 && problem.code === 'must-change-password') {
+			// 多个并行请求被拒时只导航一次，layout 重新检查会话后只显示改密码表单。
+			passwordRedirect ??= goto(resolve('/settings'), { invalidateAll: true }).finally(() => {
+				passwordRedirect = null;
+			});
+			await passwordRedirect;
 		}
 		if (response.status === 429 && !problem.title) {
 			problem.title = '操作太频繁了，稍等一会儿再试。';

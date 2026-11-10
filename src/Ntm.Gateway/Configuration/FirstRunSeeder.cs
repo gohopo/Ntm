@@ -30,8 +30,9 @@ public sealed class SeedOptions
 }
 
 /// <summary>
-/// 首次启动：建管理员账号（Q33）；按 <see cref="SeedOptions"/> 建一个 Channel；库里没有 ApiKey 就生成一个。
-/// 生成出来的管理员密码与 API 密钥都只在启动日志里出现这一次（ADR-0006：库里只存哈希与指纹）。
+/// 首次启动：建管理员账号（Q33）；按 <see cref="SeedOptions"/> 建一个 Channel。
+/// 生成出来的管理员密码只在启动日志里出现这一次，并标成必须改密码（Q349）。
+/// 不再自动生成 API 密钥（Q350）：它的原文会一直留在日志里，而页面上建一个只要几秒。
 /// </summary>
 public static partial class FirstRunSeeder
 {
@@ -92,35 +93,14 @@ public static partial class FirstRunSeeder
             await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
             LogChannelSeeded(logger, channel.Name, baseUrl, channel.Path ?? "(按 API 格式默认)");
         }
-
-        if (!await db.ApiKeys.AnyAsync(cancellationToken).ConfigureAwait(false))
-        {
-            string token = SecretFingerprint.GenerateApiKey();
-            db.ApiKeys.Add(new ApiKey
-            {
-                Name = "default",
-                Fingerprint = SecretFingerprint.Compute(token),
-                Prefix = SecretFingerprint.Prefix(token),
-                Enabled = true,
-                CreatedAt = now,
-            });
-            await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
-            LogApiKeyGenerated(logger, token);
-        }
     }
 
     [LoggerMessage(
         EventId = 4003,
         Level = LogLevel.Warning,
-        Message = "已生成管理员密码（只显示这一次，库里只存哈希；忘了用 reset-admin-password 命令重置）：{Password}")]
+        Message = "已生成管理员密码（只显示这一次，第一次登录后必须改掉；忘了用 reset-admin-password 命令重置）：{Password}")]
     private static partial void LogAdminPasswordGenerated(ILogger logger, string password);
 
     [LoggerMessage(EventId = 4001, Level = LogLevel.Information, Message = "已按种子配置创建渠道 {Channel}：{BaseUrl} {Path}")]
     private static partial void LogChannelSeeded(ILogger logger, string channel, string baseUrl, string path);
-
-    [LoggerMessage(
-        EventId = 4002,
-        Level = LogLevel.Warning,
-        Message = "已生成 API 密钥（只显示这一次，库里只存指纹）：{ApiKey}")]
-    private static partial void LogApiKeyGenerated(ILogger logger, string apiKey);
 }

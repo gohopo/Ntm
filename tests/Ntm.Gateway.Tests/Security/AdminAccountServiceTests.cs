@@ -1,3 +1,6 @@
+using System.Buffers.Binary;
+using Microsoft.AspNetCore.Identity;
+using Microsoft.Extensions.Options;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -179,6 +182,147 @@ public sealed class AdminAccountServiceTests
         Assert.NotEqual(AdminAccountService.GeneratePassword(), AdminAccountService.GeneratePassword());
     }
 
+    [Fact]
+    public async Task OldPbkdf2HashIsUpgradedOnlyAfterSuccessfulLogin()
+    {
+        await using Harness h = await Harness.StartAsync(Configured);
+        await h.Service.EnsureCreatedAsync();
+        AdminAccount before = await h.ReadAccountAsync();
+        var oldHasher = new PasswordHasher<AdminAccount>(Options.Create(new PasswordHasherOptions { IterationCount = 100_000 }));
+        string oldHash = oldHasher.HashPassword(before, Configured);
+        await h.ReplaceHashAsync(oldHash);
+
+        AdminAccountService fresh = h.NewService(null);
+        Assert.Null(await fresh.VerifyAsync("a-wrong-password"));
+        Assert.Equal(oldHash, (await h.ReadAccountAsync()).PasswordHash);
+        Assert.Equal(1, await fresh.VerifyAsync(Configured));
+
+        AdminAccount upgraded = await h.ReadAccountAsync();
+        byte[] hash = Convert.FromBase64String(upgraded.PasswordHash);
+        Assert.Equal(1, hash[0]); // Identity V3
+        Assert.Equal(2u, BinaryPrimitives.ReadUInt32BigEndian(hash.AsSpan(1, 4))); // HMAC-SHA512
+        Assert.Equal(220_000u, BinaryPrimitives.ReadUInt32BigEndian(hash.AsSpan(5, 4)));
+        Assert.NotEqual(oldHash, upgraded.PasswordHash);
+        Assert.Equal(before.SessionVersion, upgraded.SessionVersion);
+        Assert.Equal(before.PasswordChangedAt, upgraded.PasswordChangedAt);
+        Assert.False(upgraded.MustChangePassword);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task GeneratedAndResetPasswordsMustBeReplacedWithADifferentPassword(bool reset)
+    {
+        await using Harness h = await Harness.StartAsync(password: null);
+        string generated = reset
+            ? await h.Service.ResetAsync()
+            : (await h.Service.EnsureCreatedAsync())!;
+        AdminAccountService fresh = h.NewService(Configured);
+        Assert.Null(await fresh.EnsureCreatedAsync());
+        Assert.Equal(new AdminSessionState(1, true), await fresh.GetSessionStateAsync());
+
+        PasswordChangeResult same = await fresh.ChangePasswordAsync(generated, generated);
+        Assert.Equal(PasswordChangeStatus.UnchangedGeneratedPassword, same.Status);
+        Assert.Equal(1, same.SessionVersion);
+        Assert.True((await h.ReadAccountAsync()).MustChangePassword);
+        Assert.Equal(1, await fresh.VerifyAsync(generated));
+
+        Assert.Equal(PasswordChangeStatus.WrongCurrentPassword,
+            (await fresh.ChangePasswordAsync("a-wrong-password", Configured)).Status);
+        Assert.Equal(PasswordChangeStatus.TooShort,
+            (await fresh.ChangePasswordAsync(generated, "short")).Status);
+        Assert.True((await h.ReadAccountAsync()).MustChangePassword);
+
+        Assert.Equal(PasswordChangeStatus.Changed, (await fresh.ChangePasswordAsync(generated, Configured)).Status);
+        AdminAccountService restarted = h.NewService(null);
+        Assert.Equal(new AdminSessionState(2, false), await restarted.GetSessionStateAsync());
+        Assert.Null(await restarted.VerifyAsync(generated));
+        Assert.Equal(2, await restarted.VerifyAsync(Configured));
+    }
+
+    [Fact]
+    public async Task ResetAnExistingAccountRequiresChangingItsPasswordAgain()
+    {
+        await using Harness h = await Harness.StartAsync(Configured);
+        await h.Service.EnsureCreatedAsync();
+        Assert.False((await h.ReadAccountAsync()).MustChangePassword);
+        string generated = await h.Service.ResetAsync();
+        Assert.Equal(new AdminSessionState(2, true), await h.NewService(null).GetSessionStateAsync());
+        Assert.Equal(PasswordChangeStatus.Changed, (await h.Service.ChangePasswordAsync(generated, Configured)).Status);
+        Assert.Equal(new AdminSessionState(3, false), await h.NewService(null).GetSessionStateAsync());
+    }
+
+    [Fact]
+    public async Task APreviouslyUsedContextCannotVerifyOrOverwriteAResetPassword()
+    {
+        await using Harness h = await Harness.StartAsync(Configured);
+        await h.Service.EnsureCreatedAsync(); // This context tracks the original entity.
+        Assert.Equal(1, await h.Service.VerifyAsync(Configured));
+        AdminAccountService other = h.NewService(null);
+        string reset = await other.ResetAsync();
+
+        Assert.Null(await h.Service.VerifyAsync(Configured));
+        Assert.Equal(PasswordChangeStatus.WrongCurrentPassword,
+            (await h.Service.ChangePasswordAsync(Configured, "attacker-replacement")).Status);
+        Assert.Equal(2, await h.Service.VerifyAsync(reset));
+        await h.Service.RevokeSessionsAsync();
+        Assert.Equal(new AdminSessionState(3, true), await other.GetSessionStateAsync());
+        await other.RevokeSessionsAsync();
+        Assert.Equal(new AdminSessionState(4, true), await h.Service.GetSessionStateAsync());
+    }
+
+    [Fact]
+    public async Task SeparateConnectionsCannotLoseSessionVersionIncrementsOrCreateTwoAccounts()
+    {
+        string file = Path.Combine(Path.GetTempPath(), "ntm-auth-race-" + Guid.NewGuid().ToString("N") + ".db");
+        var options = new DbContextOptionsBuilder<ConfigDbContext>()
+            .UseSqlite(new SqliteConnectionStringBuilder { DataSource = file, Pooling = false, DefaultTimeout = 10 }.ToString())
+            .Options;
+        IConfiguration configuration = new ConfigurationBuilder().AddInMemoryCollection(
+            new Dictionary<string, string?> { [AdminAccountService.InitialPasswordVariable] = Configured }).Build();
+        try
+        {
+            await using (var migrate = new ConfigDbContext(options))
+            {
+                await migrate.Database.MigrateAsync();
+            }
+
+            // Independent connections represent requests or a concurrently invoked CLI reset.
+            async Task RunConcurrentAsync(Func<AdminAccountService, Task> action)
+            {
+                var start = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                Task[] workers = Enumerable.Range(0, 6).Select(_ => Task.Run(async () =>
+                {
+                    await using var db = new ConfigDbContext(options);
+                    var service = new AdminAccountService(db, configuration, TimeProvider.System);
+                    await start.Task;
+                    await action(service);
+                })).ToArray();
+                start.SetResult();
+                await Task.WhenAll(workers);
+            }
+
+            await RunConcurrentAsync(async service => Assert.Null(await service.EnsureCreatedAsync()));
+            await RunConcurrentAsync(service => service.RevokeSessionsAsync());
+            await using (var read = new ConfigDbContext(options))
+            {
+                Assert.Equal(7, (await read.AdminAccounts.SingleAsync()).SessionVersion);
+            }
+
+            await RunConcurrentAsync(async service => _ = await service.ResetAsync());
+            await using var final = new ConfigDbContext(options);
+            AdminAccount account = await final.AdminAccounts.SingleAsync();
+            Assert.Equal(13, account.SessionVersion);
+            Assert.True(account.MustChangePassword);
+        }
+        finally
+        {
+            Assert.Equal(Path.GetFullPath(Path.GetTempPath()), Path.GetDirectoryName(Path.GetFullPath(file)) + Path.DirectorySeparatorChar);
+            Assert.StartsWith("ntm-auth-race-", Path.GetFileName(file), StringComparison.Ordinal);
+            File.Delete(file);
+        }
+    }
+
     /// <summary>内存 SQLite，跑真实迁移；同一个连接上可以开新的 DbContext 模拟下一个请求。</summary>
     private sealed class Harness : IAsyncDisposable
     {
@@ -214,6 +358,14 @@ public sealed class AdminAccountServiceTests
 
             IConfiguration configuration = new ConfigurationBuilder().AddInMemoryCollection(values).Build();
             return new AdminAccountService(NewContext(), configuration, Time);
+        }
+
+        public async Task ReplaceHashAsync(string hash)
+        {
+            ConfigDbContext db = NewContext();
+            AdminAccount account = await db.AdminAccounts.SingleAsync();
+            account.PasswordHash = hash;
+            await db.SaveChangesAsync();
         }
 
         public async Task<AdminAccount> ReadAccountAsync() =>

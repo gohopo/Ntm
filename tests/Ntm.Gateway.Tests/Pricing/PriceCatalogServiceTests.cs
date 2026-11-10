@@ -163,6 +163,74 @@ public sealed class PriceCatalogServiceTests
         Assert.Same(h.Service.Current, heard);
     }
 
+    [Theory]
+    [InlineData("accurate")]
+    [InlineData("missing")]
+    [InlineData("lying")]
+    public async Task OversizedCatalogKeepsOldPricesCacheAndTimestampRegardlessOfContentLength(string lengthMode)
+    {
+        const int limit = 32 * 1024 * 1024;
+        Assert.Equal(limit, new PricingOptions().MaxCatalogBytes);
+        await using Harness h = await Harness.StartAsync("anthropic");
+        h.Handler.Respond(HttpStatusCode.OK, Catalog, etag: "\"v1\"");
+        Assert.True(await h.Service.RefreshAsync(CancellationToken.None));
+        PriceCatalog old = h.Service.Current;
+        string oldCache = await File.ReadAllTextAsync(h.CachePath);
+        h.Time.Advance(TimeSpan.FromHours(1));
+
+        // Leading JSON whitespace keeps the entire response valid JSON, but requires the parser to read past the cap.
+        byte[] body = new byte[limit + Encoding.UTF8.GetByteCount(Catalog)];
+        Array.Fill(body, (byte)' ', 0, limit);
+        Encoding.UTF8.GetBytes(Catalog, body.AsSpan(limit));
+        h.Handler.RespondContent(() =>
+        {
+            var content = new UnknownLengthContent(body);
+            content.Headers.ContentLength = lengthMode switch
+            {
+                "accurate" => body.Length,
+                "lying" => 1,
+                _ => null,
+            };
+            Assert.Equal(lengthMode == "missing", content.Headers.ContentLength is null);
+            return content;
+        });
+
+        Assert.False(await h.Service.RefreshAsync(CancellationToken.None));
+        Assert.Same(old, h.Service.Current);
+        Assert.Equal(old.FetchedAt, h.Service.Status.FetchedAt);
+        Assert.Equal(h.Time.GetUtcNow(), h.Service.Status.LastAttemptAt);
+        Assert.Equal("目录超过了 32 MiB 的上限，没有采用。", h.Service.Status.LastError);
+        Assert.Equal(oldCache, await File.ReadAllTextAsync(h.CachePath));
+        Assert.Single(h.Listener.Heard);
+    }
+
+    [Fact]
+    public async Task CatalogExactlyAtConfiguredLimitIsAccepted()
+    {
+        await using Harness h = await Harness.StartAsync("anthropic");
+        int size = Encoding.UTF8.GetByteCount(Catalog);
+        using PriceCatalogService service = h.NewService(new PricingOptions { MaxCatalogBytes = size });
+        h.Handler.RespondContent(() => new UnknownLengthContent(Encoding.UTF8.GetBytes(Catalog)));
+        Assert.True(await service.RefreshAsync(CancellationToken.None));
+        Assert.Single(service.Current.PricesOf("anthropic"));
+    }
+
+    /// <summary>A streamed response with no computable length, even though the fixture lives in memory.</summary>
+    private sealed class UnknownLengthContent(byte[] bytes) : HttpContent
+    {
+        protected override Task SerializeToStreamAsync(Stream stream, TransportContext? context) =>
+            stream.WriteAsync(bytes).AsTask();
+
+        protected override bool TryComputeLength(out long length)
+        {
+            length = 0;
+            return false;
+        }
+
+        protected override Task<Stream> CreateContentReadStreamAsync() =>
+            Task.FromResult<Stream>(new MemoryStream(bytes, writable: false));
+    }
+
     private sealed class RecordingListener : IPriceCatalogListener
     {
         public List<PriceCatalog> Heard { get; } = [];
@@ -197,6 +265,9 @@ public sealed class PriceCatalogServiceTests
 
                 return response;
             });
+
+        public void RespondContent(Func<HttpContent> content) =>
+            _responses.Enqueue(() => new HttpResponseMessage(HttpStatusCode.OK) { Content = content() });
 
         public HttpResponseMessage Next(HttpRequestMessage request)
         {
@@ -264,11 +335,11 @@ public sealed class PriceCatalogServiceTests
             return harness;
         }
 
-        public PriceCatalogService NewService()
+        public PriceCatalogService NewService(PricingOptions? options = null)
         {
             var service = new PriceCatalogService(
                 _services.GetRequiredService<IServiceScopeFactory>(),
-                Options.Create(new PricingOptions()),
+                Options.Create(options ?? new PricingOptions()),
                 Options.Create(new NtmDataOptions { Directory = _directory }),
                 Time,
                 NullLogger<PriceCatalogService>.Instance,

@@ -15,6 +15,7 @@
 		{ key: 'Ntm__Traffic__RetentionDays', value: '7', note: '请求记录保留几天。0 或负数表示永久保留。每小时汇总不受影响，一直保留。' },
 		{ key: 'Ntm__Traffic__DeleteBatchSize', value: '500', note: '清理过期记录时每批删多少条。' },
 		{ key: 'Ntm__Traffic__LandingRetentionDays', value: '30', note: 'Responses 落点（previous_response_id、conversation 指向哪个渠道密钥）在最后一次使用后保留几天。0 或负数表示永久保留。' },
+		{ key: 'Ntm__Traffic__AuditRetentionDays', value: '180', note: '操作记录保留几天。0 或负数表示永久保留；不受请求记录保留期影响。' },
 		{ key: 'Ntm__Traffic__MaxLandings', value: '1000000', note: '落点最多留多少条，超出时先删最久没用的。' }
 	];
 
@@ -31,7 +32,8 @@
 		{ key: 'Ntm__Pricing__CatalogUrl', value: 'https://models.dev/api.json', note: '价目目录的地址。' },
 		{ key: 'Ntm__Pricing__RefreshIntervalHours', value: '24', note: '多久刷新一次价目目录。0 表示不自动刷新，启动时也不下载，只能在「单价」页点「立即刷新」。' },
 		{ key: 'Ntm__Pricing__CacheFileName', value: 'price-catalog.json', note: '价目目录在数据目录里的缓存文件名。' },
-		{ key: 'Ntm__Pricing__RequestTimeoutSeconds', value: '120', note: '下载价目目录的超时秒数。' }
+		{ key: 'Ntm__Pricing__RequestTimeoutSeconds', value: '120', note: '下载价目目录的超时秒数。' },
+		{ key: 'Ntm__Pricing__MaxCatalogBytes', value: '33554432', note: '价目目录解压后的大小上限（字节），默认 32 MiB。超过按下载失败处理，保留旧目录。' }
 	];
 
 	const modelSync: Row[] = [
@@ -49,12 +51,12 @@
 
 	const metrics: Row[] = [
 		{ key: 'Ntm__Metrics__Enabled', value: 'false', note: '是否开放 /metrics（Prometheus 文本格式）。不开时这个地址不存在。' },
-		{ key: 'Ntm__Metrics__Token', value: '（无）', note: '抓取时要带的令牌：Authorization: Bearer 令牌。不填则谁都能抓，只在内网里这样用。' }
+		{ key: 'Ntm__Metrics__Token', value: '（无）', note: '抓取时要带的令牌：Authorization: Bearer 令牌。不填则谁都能抓，启动时会警告；正式部署应设置令牌并限制网络访问。' }
 	];
 
 	const sections: { id: string; title: string; intro: string; rows: Row[] }[] = [
 		{ id: 'data', title: '数据（Ntm:Data）', intro: '数据放在哪。', rows: data },
-		{ id: 'traffic', title: '请求记录（Ntm:Traffic）', intro: '请求记录和 Responses 落点保留多久。', rows: traffic },
+		{ id: 'traffic', title: '记录与落点（Ntm:Traffic）', intro: '请求记录、操作记录和 Responses 落点保留多久。', rows: traffic },
 		{ id: 'debug', title: '调试原文（Ntm:Debug）', intro: '调试原文怎么存、存多久。', rows: debug },
 		{ id: 'pricing', title: '价目目录（Ntm:Pricing）', intro: '自动单价从哪里来。', rows: pricing },
 		{ id: 'model-sync', title: '模型同步（Ntm:ModelSync）', intro: '自动同步上游模型清单的节奏。', rows: modelSync },
@@ -103,7 +105,7 @@
 		<tr>
 			<td><code>NTM_ADMIN_PASSWORD</code></td>
 			<td>（随机）</td>
-			<td>第一次启动时的管理员密码，至少 12 个字符。库里已经有管理员时不读。不设就随机生成一个，打印在日志里。</td>
+			<td>第一次启动时的管理员密码，至少 12 个字符。库里已经有管理员时不读。不设就随机生成一个，打印在日志里；用生成的密码登录后必须先改密码，才能使用其余管理功能。</td>
 		</tr>
 		<tr>
 			<td><code>NTM_TRUSTED_PROXIES</code></td>
@@ -148,5 +150,5 @@
 {/each}
 
 <p class="note">
-	第一次启动时，库里没有 API 密钥的话网关还会生成一个，打印在日志里，只显示这一次。这和种子渠道无关，不需要配置。
+	网关不再自动创建默认 API 密钥，也不会把它写进启动日志。请登录管理页面后在「API 密钥」页创建；种子渠道不会替你创建 API 密钥。已有部署的 API 密钥不受影响。
 </p>

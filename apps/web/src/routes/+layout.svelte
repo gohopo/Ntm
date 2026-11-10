@@ -17,6 +17,7 @@
 		{ href: resolve('/workbench'), label: '工作台', match: ['/workbench'] },
 		{ href: resolve('/prices'), label: '单价', match: ['/prices'] },
 		{ href: resolve('/api-keys'), label: 'API 密钥', match: ['/api-keys'] },
+		{ href: resolve('/audit'), label: '操作记录', match: ['/audit'] },
 		{ href: resolve('/settings'), label: '设置', match: ['/settings'] }
 	];
 
@@ -42,10 +43,10 @@
 
 {#if data.signedIn}
 	<header>
-		<a class="brand" href={resolve('/')}>南天门</a>
+		<a class="brand" href={data.mustChangePassword ? resolve('/settings') : resolve('/')}>南天门</a>
 		<nav aria-label="主导航">
 			<ul>
-				{#each links as link (link.href)}
+				{#each links.filter((link) => !data.mustChangePassword || link.href === resolve('/settings')) as link (link.href)}
 					<li>
 						<a href={link.href} aria-current={isCurrent(link.match) ? 'page' : undefined}>
 							{link.label}

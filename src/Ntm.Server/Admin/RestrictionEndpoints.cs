@@ -89,6 +89,10 @@ internal static class RestrictionEndpoints
     {
         group.MapGet("/time-zone", TimeZone);
         group.MapGet("/version", () => TypedResults.Ok(new VersionView(Hosting.BuildInfo.Version, Hosting.BuildInfo.Commit)));
+
+        // 设置页顶上的提醒（Q352）。
+        group.MapGet("/warnings", (Hosting.ForwardedHeadersMonitor forwarded) =>
+            TypedResults.Ok(new SettingsWarningsView(forwarded.Detected)));
         return group;
     }
 
@@ -487,3 +491,6 @@ internal static class RestrictionEndpoints
 }
 
 internal sealed record VersionView(string Version, string? Commit);
+
+/// <summary>没配可信代理却收到了转发头（Q352）。</summary>
+internal sealed record SettingsWarningsView(bool UntrustedForwardedHeaders);

@@ -17,6 +17,46 @@ namespace Ntm.Gateway.Data.Migrations.Traffic
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "10.0.13");
 
+            modelBuilder.Entity("Ntm.Gateway.Audit.AuditEntry", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Action")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
+                    b.Property<long>("OccurredAt")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("RemoteAddress")
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("Succeeded")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("TargetId")
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("TargetName")
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("TargetType")
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("OccurredAt");
+
+                    b.ToTable("audit_entries", (string)null);
+                });
+
             modelBuilder.Entity("Ntm.Gateway.Routing.ResponseLanding", b =>
                 {
                     b.Property<string>("Id")
@@ -424,6 +464,42 @@ namespace Ntm.Gateway.Data.Migrations.Traffic
                     b.HasIndex("ApiKeyId", "StartedAt");
 
                     b.ToTable("requests", (string)null);
+                });
+
+            modelBuilder.Entity("Ntm.Gateway.Audit.AuditEntry", b =>
+                {
+                    b.OwnsMany("Ntm.Gateway.Audit.AuditChange", "Changes", b1 =>
+                        {
+                            b1.Property<long>("AuditEntryId");
+
+                            b1.Property<int>("__synthesizedOrdinal")
+                                .ValueGeneratedOnAddOrUpdate();
+
+                            b1.Property<string>("Entity")
+                                .IsRequired();
+
+                            b1.Property<string>("EntityId");
+
+                            b1.Property<string>("Fields");
+
+                            b1.Property<string>("Name");
+
+                            b1.Property<string>("State")
+                                .IsRequired();
+
+                            b1.HasKey("AuditEntryId", "__synthesizedOrdinal");
+
+                            b1.ToTable("audit_entries");
+
+                            b1
+                                .ToJson("Changes")
+                                .HasColumnType("TEXT");
+
+                            b1.WithOwner()
+                                .HasForeignKey("AuditEntryId");
+                        });
+
+                    b.Navigation("Changes");
                 });
 
             modelBuilder.Entity("Ntm.Gateway.Traffic.AttemptRecord", b =>

@@ -2,7 +2,7 @@
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
 	import { api, ApiError, messageOf } from '#lib/api.ts';
-	import { formatCost, formatCount, formatTime } from '#lib/format.ts';
+	import { formatCost, formatCount, formatTime, isExpired, toLocalDateTime } from '#lib/format.ts';
 	import { poll } from '#lib/poll.ts';
 	import DebugSwitch from '#lib/DebugSwitch.svelte';
 	import type {
@@ -36,12 +36,19 @@
 	let allowedModels = $state<string[]>([]);
 	let channelModes = $state<Record<number, ChannelMode>>({});
 
+	let expiresAt = $state('');
+	let expirySaving = $state(false);
+	let expiryError = $state<string | null>(null);
+	let expiryNotice = $state<string | null>(null);
+	let now = $state(Date.now());
+
 	let saving = $state(false);
 	let saveError = $state<ApiError | null>(null);
 	let saveNotice = $state<string | null>(null);
 
 	function fill(value: ApiKeyDetailView) {
 		detail = value;
+		expiresAt = toLocalDateTime(value.apiKey.expiresAt);
 		const r = value.restrictions;
 		costLimitUsd = r.costLimitNanoUsd === null ? null : r.costLimitNanoUsd / 1_000_000_000;
 		maxConcurrency = r.maxConcurrency;
@@ -53,6 +60,7 @@
 	}
 
 	async function loadRuntime() {
+		now = Date.now();
 		try {
 			runtime = await api.get<ApiKeyRuntimeView>('/api/api-keys/' + id + '/runtime');
 		} catch {
@@ -134,6 +142,26 @@
 			saving = false;
 		}
 	}
+
+	async function saveExpiry(event: SubmitEvent) {
+		event.preventDefault();
+		expirySaving = true;
+		expiryError = null;
+		expiryNotice = null;
+		try {
+			await api.patch('/api/api-keys/' + id, { expiresAt: expiresAt ? new Date(expiresAt).toISOString() : '' });
+			const fresh = await api.get<ApiKeyDetailView>('/api/api-keys/' + id);
+			// 不重置正在编辑的限制表单。
+			if (detail) detail.apiKey = fresh.apiKey;
+			expiresAt = toLocalDateTime(fresh.apiKey.expiresAt);
+			now = Date.now();
+			expiryNotice = '过期时间已保存。';
+		} catch (e) {
+			expiryError = e instanceof ApiError ? (e.field('expiresAt') ?? e.message) : messageOf(e);
+		} finally {
+			expirySaving = false;
+		}
+	}
 </script>
 
 <svelte:head>
@@ -157,7 +185,22 @@
 		<dd>{formatTime(detail.apiKey.createdAt)}</dd>
 		<dt>最近使用</dt>
 		<dd>{formatTime(detail.apiKey.lastUsedAt)}</dd>
+		<dt>过期时间</dt>
+		<dd>{detail.apiKey.expiresAt ? formatTime(detail.apiKey.expiresAt) : '永不过期'}
+			{#if isExpired(detail.apiKey.expiresAt, now)}<span class="badge error">已过期</span>{/if}
+		</dd>
 	</dl>
+
+	<form class="panel toolbar" onsubmit={saveExpiry}>
+		<label class="field">
+			<span>过期时间（本地时区）</span>
+			<input type="datetime-local" step="1" bind:value={expiresAt} aria-invalid={expiryError ? 'true' : undefined} />
+			<span class="hint">清空后保存，表示永不过期。过期的 API 密钥不能发起新请求。</span>
+		</label>
+		<button type="submit" disabled={expirySaving}>{expirySaving ? '保存中…' : '保存过期时间'}</button>
+	</form>
+	{#if expiryError}<p class="alert" role="alert">{expiryError}</p>{/if}
+	{#if expiryNotice}<p class="notice" role="status">{expiryNotice}</p>{/if}
 
 	{#if runtime}
 		<div class="runtime">

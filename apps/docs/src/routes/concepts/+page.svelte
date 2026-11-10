@@ -166,6 +166,7 @@
 </p>
 
 <ul>
+	<li><strong>到期时间</strong>：可以不设；到期后新请求被拒绝，列表显示「已过期」。可以在详情里延长或清空到期时间。</li>
 	<li><strong>费用上限</strong>：终身累计，用完就拒绝。</li>
 	<li><strong>并发上限</strong>：同时进行的请求数。</li>
 	<li><strong>模型</strong>：只能用哪些下发模型。</li>

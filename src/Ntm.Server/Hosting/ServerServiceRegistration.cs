@@ -29,6 +29,7 @@ internal static class ServerServiceRegistration
         services.AddOptions<Admin.LiveStreamOptions>();
         services.AddSingleton<IHealthProbe, DatabaseHealthProbe>();
         services.AddAdminAuthentication();
+        services.AddSingleton<ForwardedHeadersMonitor>();
         return services;
     }
 }

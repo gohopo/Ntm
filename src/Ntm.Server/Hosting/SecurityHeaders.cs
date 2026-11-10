@@ -14,6 +14,10 @@ internal static class SecurityHeaders
                 IHeaderDictionary headers = context.Response.Headers;
                 headers.XContentTypeOptions = "nosniff";
                 headers.XFrameOptions = "DENY";
+
+                // 页面里的 CSP 是 meta 标签（SvelteKit 生成，Q356），而 meta 里的 frame-ancestors 不生效，只能放在响应头里。
+                // 老浏览器认 X-Frame-Options，新浏览器认这个。
+                headers.ContentSecurityPolicy = "frame-ancestors 'none'";
                 headers["Referrer-Policy"] = "no-referrer";
 
                 if (context.Request.Path.StartsWithSegments("/api"))

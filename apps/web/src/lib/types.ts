@@ -650,7 +650,17 @@ export interface StatsView {
 }
 
 /** ASP.NET Core 的 ProblemDetails / ValidationProblemDetails。 */
+export interface AdminView {
+	name: string;
+	mustChangePassword: boolean;
+}
+
+export interface SettingsWarningsView {
+	untrustedForwardedHeaders: boolean;
+}
+
 export interface Problem {
+	code?: string;
 	title?: string;
 	status?: number;
 	detail?: string;

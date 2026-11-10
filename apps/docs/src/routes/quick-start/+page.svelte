@@ -50,14 +50,14 @@ curl -O https://raw.githubusercontent.com/gohopo/Ntm/main/compose.yaml`;
 <Code code={logs} label="sh" />
 
 <p>
-	第一次启动时日志里还会打印一个自动生成的 API 密钥（「已生成 API 密钥」那一行），后面可以直接用它，也可以在管理页面另建。忘了管理员密码怎么办见<a
+	启动日志不会生成或显示默认 API 密钥，请按第 5 步在管理页面创建。忘了管理员密码怎么办见<a
 		href={resolve('/deploy') + '#reset-password'}>重置管理员密码</a
 	>。
 </p>
 
 <Heading id="login">2. 登录</Heading>
 
-<p>打开 <code>http://localhost:8080</code>，用管理员密码登录。</p>
+<p>打开 <code>http://localhost:8080</code>，用管理员密码登录。如果密码是网关随机生成的，登录后必须先改成自己的密码，才能创建渠道等；新密码至少 12 个字符，不能继续用那个生成的密码。自行设置的初始密码不强制更换。</p>
 
 <Heading id="channel">3. 建渠道</Heading>
 
@@ -101,7 +101,7 @@ curl -O https://raw.githubusercontent.com/gohopo/Ntm/main/compose.yaml`;
 <Heading id="api-key">5. 建 API 密钥</Heading>
 
 <p>
-	在「API 密钥」页填个名字创建。完整的密钥只显示这一次，先复制下来；库里只存它的指纹，以后看不到原文。第 1 步日志里那个自动生成的密钥也可以用。
+	在「API 密钥」页填个名字创建，可以设置到期时间，也可以不设。完整的密钥只显示这一次，先复制下来；库里只存它的指纹，以后看不到原文。
 </p>
 
 <Heading id="first-request">6. 发第一个请求</Heading>

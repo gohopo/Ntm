@@ -4,7 +4,7 @@ using Ntm.Gateway.Traffic;
 namespace Ntm.Gateway.Data;
 
 /// <summary>
-/// <c>ntm-traffic.db</c>：请求记录、尝试记录和小时汇总（ADR-0004）。
+/// <c>ntm-traffic.db</c>：请求记录、尝试记录、小时汇总和操作记录（ADR-0004、Q358）。
 /// 汇总和记录在同一个事务里写，崩溃最多丢最后一个批次，而且两者一起丢。
 /// 名字故意不叫 logs——它是账，不是可以随手删的垃圾。
 /// 索引刻意少：ccLoad 在 logs 上挂了 11 个索引，每条记录的写入成本都摊在上面。
@@ -19,6 +19,9 @@ public sealed class TrafficDbContext(DbContextOptions<TrafficDbContext> options)
 
     /// <summary>上游 id 落在哪个渠道密钥上（Q269，ADR-0020）。</summary>
     public DbSet<Routing.ResponseLanding> ResponseLandings => Set<Routing.ResponseLanding>();
+
+    /// <summary>管理员的操作记录（Q358）。</summary>
+    public DbSet<Audit.AuditEntry> AuditEntries => Set<Audit.AuditEntry>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -112,6 +115,22 @@ public sealed class TrafficDbContext(DbContextOptions<TrafficDbContext> options)
             entity.Property(e => e.PublishedModel).HasMaxLength(300);
             entity.Property(e => e.CreatedAt).HasConversion(timestamp);
             entity.Property(e => e.LastUsedAt).HasConversion(timestamp);
+        });
+
+        modelBuilder.Entity<Audit.AuditEntry>(entity =>
+        {
+            entity.ToTable("audit_entries");
+            entity.HasKey(e => e.Id);
+
+            // 列表按 id 倒序翻页；保留期清理按时间删。按动作过滤的量很小，不单独建索引。
+            entity.HasIndex(e => e.OccurredAt);
+            entity.Property(e => e.OccurredAt).HasConversion(timestamp);
+            entity.Property(e => e.RemoteAddress).HasMaxLength(64);
+            entity.Property(e => e.Action).HasMaxLength(Audit.AuditEntry.MaxActionLength);
+            entity.Property(e => e.TargetType).HasMaxLength(64);
+            entity.Property(e => e.TargetId).HasMaxLength(64);
+            entity.Property(e => e.TargetName).HasMaxLength(Audit.AuditEntry.MaxNameLength);
+            entity.OwnsMany(e => e.Changes, changes => changes.ToJson());
         });
 
         base.OnModelCreating(modelBuilder);

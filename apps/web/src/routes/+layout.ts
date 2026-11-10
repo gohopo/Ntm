@@ -1,6 +1,7 @@
 import { redirect } from '@sveltejs/kit';
 import { resolve } from '$app/paths';
 import type { LayoutLoad } from './$types';
+import type { AdminView } from '#lib/types.ts';
 
 // 管理面板只在浏览器里跑：没有 SSR，未知路径由 200.html 接住后交给客户端路由。
 export const ssr = false;
@@ -10,6 +11,11 @@ export const load: LayoutLoad = async ({ fetch, url }) => {
 	const onLogin = url.pathname === resolve('/login');
 	const response = await fetch('/api/auth/me', { credentials: 'same-origin' });
 	const signedIn = response.ok;
+	const me: AdminView | null = signedIn ? await response.json() : null;
+	const mustChangePassword = me?.mustChangePassword ?? false;
+	if (mustChangePassword && url.pathname !== resolve('/settings')) {
+		redirect(307, resolve('/settings'));
+	}
 
 	if (!signedIn && !onLogin) {
 		redirect(307, resolve('/login') + '?next=' + encodeURIComponent(url.pathname + url.search));
@@ -17,5 +23,5 @@ export const load: LayoutLoad = async ({ fetch, url }) => {
 	if (signedIn && onLogin) {
 		redirect(307, resolve('/'));
 	}
-	return { signedIn };
+	return { signedIn, mustChangePassword };
 };

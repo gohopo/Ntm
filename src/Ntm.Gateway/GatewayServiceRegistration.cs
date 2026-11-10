@@ -89,6 +89,7 @@ public static class GatewayServiceRegistration
         services.Configure<RetentionOptions>(configuration.GetSection(RetentionOptions.SectionName));
         services.AddSingleton<RetentionCleaner>();
         services.AddHostedService(provider => provider.GetRequiredService<RetentionCleaner>());
+        services.AddSingleton<Audit.AuditWriter>();
         services.AddSingleton<ChatRelay>();
         services.AddSingleton<ModelsCatalog>();
         services.AddSingleton<TokenCounter>();

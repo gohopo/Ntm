@@ -51,7 +51,7 @@ docker compose up -d --build`;
 	const nginx = `location / {
     proxy_pass http://127.0.0.1:8080;
     proxy_http_version 1.1;
-    proxy_set_header Host $host;
+    proxy_set_header Host $http_host;
     proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
     proxy_set_header X-Forwarded-Proto $scheme;
     # 流式响应可能很久才结束；非流式请求最长等 10 分钟
@@ -79,14 +79,13 @@ ASPNETCORE_ENVIRONMENT=Development dotnet run --project src/Ntm.Server`;
 
 <p>
 	仓库里的 <code>compose.yaml</code> 用 Docker Hub 上发布的镜像 <code>gohopo/ntm</code>，有 amd64 和 arm64 两种架构。标签是版本号，例如
-	<code>0.1.0</code>，另有 <code>0.1</code> 和 <code>latest</code>。<code>compose.yaml</code> 里写死了一个版本号，每次发版都会跟着改成新版本；部署时也请写死版本号，不要用
-	<code>latest</code>，免得哪次拉镜像时悄悄升级：
+	<code>0.1.0</code>，另有 <code>0.1</code> 和 <code>latest</code>。仓库的 <code>compose.yaml</code> 默认使用 <code>latest</code>，每次拉取可能得到新版本。想控制升级时机，部署时可以改成指定版本，例如：
 </p>
 
 <Code code={image} label="compose.yaml" />
 
 <p>
-	想从源码构建，就在仓库根目录取消 <code>build: .</code> 那一行的注释，执行 <code>docker compose up -d --build</code>，构建出的镜像沿用上面的名字：
+	想从源码构建，就在仓库根目录的 <code>compose.yaml</code> 中加入 <code>build: .</code>，执行 <code>docker compose up -d --build</code>，构建出的镜像沿用上面的名字：
 </p>
 
 <Code code={build} label="compose.yaml" />
@@ -114,7 +113,7 @@ ASPNETCORE_ENVIRONMENT=Development dotnet run --project src/Ntm.Server`;
 	</thead>
 	<tbody>
 		<tr><td><code>ntm.db</code></td><td>配置：渠道、渠道密钥（加密）、下发模型、API 密钥（只存指纹）、单价、管理员</td></tr>
-		<tr><td><code>ntm-traffic.db</code></td><td>请求记录、每小时汇总、Responses 的落点</td></tr>
+		<tr><td><code>ntm-traffic.db</code></td><td>请求记录、每小时汇总、Responses 的落点、操作记录</td></tr>
 		<tr><td><code>ntm-debug.db</code></td><td>调试原文，保留 24 小时</td></tr>
 		<tr><td><code>keys/</code></td><td>Data Protection 密钥环，用来解开库里加密的渠道密钥和代理地址</td></tr>
 		<tr><td><code>price-catalog.json</code></td><td>价目目录的缓存，丢了会重新下载</td></tr>
@@ -163,7 +162,7 @@ ASPNETCORE_ENVIRONMENT=Development dotnet run --project src/Ntm.Server`;
 <Code code={restoreCopy} label="sh" />
 
 <p>
-	请求记录默认只留 7 天，库不会无限变大；保留多久见<a href={resolve('/configuration') + '#traffic'}>配置参考</a>。
+	请求记录默认只留 7 天，操作记录默认留 180 天，每小时汇总一直保留；应监控磁盘占用，保留多久见<a href={resolve('/configuration') + '#traffic'}>配置参考</a>。
 </p>
 
 <Heading id="upgrade">升级</Heading>
@@ -207,10 +206,43 @@ ASPNETCORE_ENVIRONMENT=Development dotnet run --project src/Ntm.Server`;
 </p>
 
 <p>
-	代理那边要放宽超时和请求体大小。网关在流式响应上已经发了 <code>X-Accel-Buffering: no</code>，nginx 不会缓冲它。nginx 的例子：
+	代理必须保留浏览器发来的 <code>Host</code>（包括非默认端口），供跨站请求防护核对来源；不要把它改成上游的内部主机名。同时放宽超时和请求体大小。网关在流式响应上已经发了 <code>X-Accel-Buffering: no</code>，nginx 不会缓冲它。nginx 的例子：
 </p>
 
 <Code code={nginx} label="nginx" />
+
+<Heading id="security">安全</Heading>
+
+<p>
+	公网部署请使用 HTTPS，并限制谁能访问管理页面。网关只有一个管理员，没有角色隔离或两步验证；拥有管理员权限的人可以配置任意 http(s) 渠道地址，包括本机和内网服务。这样才能接 Ollama、vLLM 等自托管上游，不应把管理员权限交给不可信的人。
+</p>
+
+<ul>
+	<li><strong>代理与 HTTPS</strong>：反代保留 <code>Host</code>，并只把实际代理的 IP 或网段填入 <code>NTM_TRUSTED_PROXIES</code>，不要信任所有来源。没配可信代理却收到了转发头时，网关在日志里提醒一次，「设置」页也会显示提醒；它不会自动信任这些头。</li>
+	<li><strong>HSTS</strong>：网关不发 HSTS，请在 HTTPS 反代上配置。只有确认域名长期使用 HTTPS 后再开启；是否包含子域由部署者决定。</li>
+	<li><strong>初始密码</strong>：自己设置的初始密码至少 12 个字符。不设置时仍会随机生成并写进启动日志，但用它登录后必须先换成自己的密码。命令行重置生成的密码也一样。改之前只能处理会话、改密码，不能配置渠道或发工作台请求；启动日志和终端记录仍要妥善保管。</li>
+	<li><strong>会话</strong>：7 天滑动过期，每次登录后最长 30 天。到期后要重新登录；改密码会让其他设备退出，当前设备得到新会话。「设置」里的「退出所有设备」会连当前设备一起退出，不改变密码。普通「退出登录」只清除本机 cookie，不等于撤销其他设备的会话。</li>
+	<li><strong>密码试错</strong>：每个来源一分钟最多失败 5 次，IPv4 按单个地址、IPv6 按 /64 网段算；整个网关一分钟最多失败 30 次。改密码时猜当前密码也计入。成功不计次数。超过后返回 429 和 <code>Retry-After</code>，等窗口到期再试；持续攻击可能反复挡住管理员，建议再在反代上限制管理入口的来源。</li>
+	<li><strong>备份与原文</strong>：备份包含解密所需的密钥环，拿到备份就能解开渠道密钥和代理地址。调试原文的正文不脱敏，可能包含对话内容；数据目录、备份和日志都应限制访问。</li>
+	<li><strong>指标</strong>：开启 <code>/metrics</code> 时设置 <code>Ntm__Metrics__Token</code>，并限制抓取来源。没设令牌只会在启动时警告，不会替你关闭接口。<code>/healthz</code> 仍公开，返回健康状态、版本与提交号。</li>
+</ul>
+
+<Heading id="csrf" level={3}>管理接口的跨站防护</Heading>
+
+<p>
+	<code>/api</code> 下除 GET、HEAD、OPTIONS 以外的请求都检查来源，包括登录、无请求体的操作和工作台发送；<code>/v1</code> 的 API 密钥认证接口不受这套规则影响。cookie 保持 HttpOnly、SameSite=Strict；HTTPS 请求下带 Secure。
+</p>
+
+<ol>
+	<li>有 <code>Sec-Fetch-Site</code> 时只接受 <code>same-origin</code> 和 <code>none</code>；<code>cross-site</code> 与 <code>same-site</code> 都返回 403，同一主域下的其他子域也不能代发操作。</li>
+	<li>没有这个头但有 <code>Origin</code> 时，核对来源与请求 Host；反代改了 Host 或丢了外部端口可能使正常请求也被拒绝。</li>
+	<li>两个头都没有时放行来源检查，保留 curl、脚本等客户端的兼容性；这不代表免登录，仍须有效的管理 cookie。此时浏览器侧的保护依赖 SameSite=Strict 等限制，不能把缺头本身当成可信身份。</li>
+	<li>带请求体时必须使用 <code>Content-Type: application/json</code>，否则返回 415；表单和纯文本请求不能替代 JSON。</li>
+</ol>
+
+<p>
+	这套方案不要求额外获取 antiforgery 令牌；不要在代理上删除来源检查用的头，也不要为绕过 403 而伪造它们。管理页面还带 CSP，限制脚本来源并禁止嵌入其他页面；HSTS 仍由代理负责。原因和取舍见 <a href={adr('0023-admin-security-boundaries.md')}>ADR-0023</a>。
+</p>
 
 <Heading id="timezone">时区</Heading>
 
@@ -285,7 +317,7 @@ ASPNETCORE_ENVIRONMENT=Development dotnet run --project src/Ntm.Server`;
 <Code code={resetDocker} label="Docker" />
 
 <p>
-	它生成一个新的随机密码，打印出来，只显示这一次；所有已经登录的会话立刻失效。故意不接受从参数传入密码，免得留在 shell 历史里。登录后可以在「设置」里改成自己的密码。
+	它生成一个新的随机密码，打印出来，只显示这一次；所有已经登录的会话立刻失效，并写一条操作记录。故意不接受从参数传入密码，免得留在 shell 历史里。用它登录后必须先改成自己的密码，才能继续使用管理功能。
 </p>
 
 <Heading id="from-source">从源码运行</Heading>

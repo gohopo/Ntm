@@ -7,7 +7,7 @@ namespace Ntm.Gateway.Security;
 /// 凭证的不可逆指纹。ApiKey 按它查（ADR-0006），ChannelKey 的冷却与限速计数也按它归集（Q21）。
 ///
 /// 用裸 SHA-256 而不是密码派生函数：这两种凭证都是高熵随机串，不存在字典猜测，
-/// 而登录口令走的是另一条路（bcrypt 之类），不要混用。
+/// 管理员登录密码走的是另一条路（<see cref="AdminAccountService"/> 里的 PBKDF2），不要混用。
 /// </summary>
 public static class SecretFingerprint
 {

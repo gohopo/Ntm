@@ -177,7 +177,7 @@ public sealed class AuthTests
 
         Assert.Equal(0, exitCode);
         string printed = output.ToString()
-            .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)[^1];
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)[^2];
 
         // 账号已经由命令建好，启动时不会再读初始密码变量。
         await using var host = new ServerHost(directory);
@@ -197,12 +197,10 @@ public sealed class AuthTests
         using HttpClient client = host.CreateBrowser();
         using var form = new FormUrlEncodedContent([new("password", ServerHost.Password)]);
 
-        // 只收 JSON：跨站的表单提交连门都进不来（SameSite=Strict 之外的第二道防线）。
-        // 内容类型对不上时，路由的 Accepts 策略会落到 /api 的兜底 404，而不是 415；
-        // 要紧的是登录处理根本没被调用、没有发 cookie。
+        // 跨站表单在进入登录处理前被 JSON-only 中间件拒绝，不发 cookie。
         using HttpResponseMessage response = await client.PostAsync("/api/auth/login", form);
 
-        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        Assert.Equal(HttpStatusCode.UnsupportedMediaType, response.StatusCode);
         Assert.False(response.Headers.Contains("Set-Cookie"));
     }
 

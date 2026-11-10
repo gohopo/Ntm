@@ -1,3 +1,4 @@
+using System.Globalization;
 using Microsoft.EntityFrameworkCore;
 using Ntm.Gateway.Configuration;
 using Ntm.Gateway.Data;
@@ -6,9 +7,14 @@ using Ntm.Gateway.Security;
 
 namespace Ntm.Server.Admin;
 
-internal sealed record ApiKeyInput(string? Name);
+/// <summary><paramref name="ExpiresAt"/>：ISO 8601 时间，不填就是永不过期（Q357）。</summary>
+internal sealed record ApiKeyInput(string? Name, string? ExpiresAt = null);
 
-internal sealed record ApiKeyPatch(string? Name, bool? Enabled);
+/// <summary>
+/// 字段为 null 表示不改。<paramref name="ExpiresAt"/> 传空字符串表示改成永不过期，
+/// 和渠道的代理地址一个约定。
+/// </summary>
+internal sealed record ApiKeyPatch(string? Name, bool? Enabled, string? ExpiresAt = null);
 
 internal sealed record ApiKeyView(
     int Id,
@@ -94,7 +100,10 @@ internal static class ApiKeyEndpoints
     {
         var errors = new ValidationErrors();
         string? name = await ValidateNameAsync(db, input.Name, selfId: 0, errors, cancellationToken).ConfigureAwait(false);
-        if (name is null)
+        DateTimeOffset? expiresAt = string.IsNullOrWhiteSpace(input.ExpiresAt)
+            ? null
+            : ParseExpiry(input.ExpiresAt, timeProvider, errors);
+        if (name is null || errors.HasErrors)
         {
             return errors.ToResult();
         }
@@ -106,6 +115,7 @@ internal static class ApiKeyEndpoints
             Fingerprint = SecretFingerprint.Compute(secret),
             Prefix = SecretFingerprint.Prefix(secret),
             CreatedAt = timeProvider.GetUtcNow(),
+            ExpiresAt = expiresAt,
         };
         db.ApiKeys.Add(token);
         if (!await AdminResults.TrySaveAsync(db, cancellationToken).ConfigureAwait(false))
@@ -124,6 +134,7 @@ internal static class ApiKeyEndpoints
         ApiKeyPatch input,
         ConfigDbContext db,
         ConfigSnapshotProvider snapshots,
+        TimeProvider timeProvider,
         CancellationToken cancellationToken)
     {
         ApiKey? token = await db.ApiKeys.FirstOrDefaultAsync(t => t.Id == id, cancellationToken).ConfigureAwait(false);
@@ -147,6 +158,13 @@ internal static class ApiKeyEndpoints
             token.Enabled = enabled;
         }
 
+        if (input.ExpiresAt is not null)
+        {
+            token.ExpiresAt = string.IsNullOrWhiteSpace(input.ExpiresAt)
+                ? null
+                : ParseExpiry(input.ExpiresAt, timeProvider, errors) ?? token.ExpiresAt;
+        }
+
         if (errors.HasErrors)
         {
             return errors.ToResult();
@@ -161,6 +179,29 @@ internal static class ApiKeyEndpoints
         await snapshots.ReloadAsync(CancellationToken.None).ConfigureAwait(false);
         return TypedResults.NoContent();
     }
+
+    /// <summary>过期时间必须带时区（前端发的是 UTC）而且晚于现在：设成过去等于停用，那就直接停用。</summary>
+    private static DateTimeOffset? ParseExpiry(string value, TimeProvider timeProvider, ValidationErrors errors)
+    {
+        if (!DateTimeOffset.TryParse(value, CultureInfo.InvariantCulture, DateTimeStyles.None, out DateTimeOffset parsed)
+            || !HasOffset(value))
+        {
+            errors.Add("expiresAt", "过期时间格式不对。");
+            return null;
+        }
+
+        if (parsed <= timeProvider.GetUtcNow())
+        {
+            errors.Add("expiresAt", "过期时间要晚于现在。想马上不让它用，直接停用。");
+            return null;
+        }
+
+        return parsed.ToUniversalTime();
+    }
+
+    private static bool HasOffset(string value) =>
+        value.EndsWith('Z') || value.EndsWith('z')
+        || (value.Length > 6 && (value[^6] is '+' or '-') && value[^3] == ':');
 
     private static async Task<IResult> DeleteAsync(
         int id,

@@ -19,6 +19,12 @@ public sealed class AdminAccount
     /// </summary>
     public int SessionVersion { get; set; } = 1;
 
+    /// <summary>
+    /// 当前密码是网关生成的（首次启动或 reset-admin-password），在日志或终端里出现过（Q349）。
+    /// 为 true 时登录后只能改密码，改完才放开其他管理接口。
+    /// </summary>
+    public bool MustChangePassword { get; set; }
+
     public DateTimeOffset CreatedAt { get; set; }
 
     public DateTimeOffset PasswordChangedAt { get; set; }

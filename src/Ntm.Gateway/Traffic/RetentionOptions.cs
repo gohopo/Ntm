@@ -20,6 +20,12 @@ public sealed class RetentionOptions
     /// </summary>
     public int LandingRetentionDays { get; set; } = 30;
 
+    /// <summary>
+    /// 操作记录保留多少天，默认 180（Q358）。环境变量 <c>Ntm__Traffic__AuditRetentionDays</c> 可以覆盖；
+    /// 设 0 或负数表示永久保留。
+    /// </summary>
+    public int AuditRetentionDays { get; set; } = 180;
+
     /// <summary>response_landings 最多留这么多行，超了先删最久没用的（Q285）。</summary>
     public int MaxLandings { get; set; } = 1_000_000;
 }

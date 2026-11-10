@@ -1,14 +1,27 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { goto, invalidateAll } from '$app/navigation';
+	import { resolve } from '$app/paths';
+	import type { PageProps } from './$types';
 	import { api, ApiError, messageOf } from '#lib/api.ts';
-	import type { TimeZoneView, VersionView } from '#lib/types.ts';
+	import type { TimeZoneView, VersionView, SettingsWarningsView } from '#lib/types.ts';
 	import DebugSwitch from '#lib/DebugSwitch.svelte';
+
+	let { data }: PageProps = $props();
+	let warnings = $state<SettingsWarningsView | null>(null);
+	let warningsError = $state<string | null>(null);
+	let endingSessions = $state(false);
+	let sessionError = $state<string | null>(null);
 
 	let zone = $state<TimeZoneView | null>(null);
 	let zoneError = $state<string | null>(null);
 	let version = $state<VersionView | null>(null);
 
-	onMount(() => {
+	$effect(() => {
+		if (data.mustChangePassword) return;
+		api.get<SettingsWarningsView>('/api/settings/warnings').then(
+			(value) => (warnings = value),
+			(e: unknown) => (warningsError = messageOf(e))
+		);
 		api.get<TimeZoneView>('/api/settings/time-zone').then(
 			(value) => (zone = value),
 			(e: unknown) => (zoneError = messageOf(e))
@@ -43,6 +56,7 @@
 			newPassword = '';
 			confirmPassword = '';
 			done = true;
+			await invalidateAll();
 		} catch (e) {
 			if (e instanceof ApiError) {
 				fieldErrors = {
@@ -58,13 +72,35 @@
 			busy = false;
 		}
 	}
+
+	async function logoutAll() {
+		if (!confirm('退出所有设备？当前页面也会退出，需要重新输入密码登录。')) return;
+		endingSessions = true;
+		sessionError = null;
+		try {
+			await api.post('/api/auth/logout-all');
+			await goto(resolve('/login'), { invalidateAll: true });
+		} catch (e) {
+			sessionError = messageOf(e);
+		} finally {
+			endingSessions = false;
+		}
+	}
 </script>
 
 <svelte:head>
 	<title>设置 · 南天门</title>
 </svelte:head>
 
-<h1>设置</h1>
+<h1>{data.mustChangePassword ? '请先修改管理员密码' : '设置'}</h1>
+
+{#if data.mustChangePassword}
+	<p class="alert" role="alert">当前密码由网关生成，出现在日志或终端里。请换成只有你知道的密码，改完才能使用其他管理功能。</p>
+{:else}
+	{#if warnings?.untrustedForwardedHeaders}
+		<p class="alert" role="alert">收到了转发头，但没有配置可信代理。请设置 <code>NTM_TRUSTED_PROXIES</code> 并重启，否则登录限流和操作记录看到的可能都是代理地址，HTTPS 反代后的 cookie 也可能没有 Secure 标记。</p>
+	{/if}
+	{#if warningsError}<p class="alert" role="alert">读取安全提醒失败：{warningsError}</p>{/if}
 
 <section class="panel narrow" aria-labelledby="zone-heading">
 	<h2 id="zone-heading">时区</h2>
@@ -96,6 +132,8 @@
 		hint="渠道和 API 密钥上也各有一个开关，任一开着就会录。"
 	/>
 </section>
+
+{/if}
 
 <section class="panel narrow" aria-labelledby="password-heading">
 	<h2 id="password-heading">修改管理员密码</h2>
@@ -160,7 +198,17 @@
 	</form>
 </section>
 
-{#if version}
+{#if !data.mustChangePassword}
+	<section class="panel narrow" aria-labelledby="session-heading">
+		<h2 id="session-heading">登录会话</h2>
+		<p class="muted">连续 7 天未使用会过期；无论是否使用，登录满 30 天都需要重新登录。</p>
+		<p>怀疑其他设备还在登录时，可以一次退出所有设备，不改变密码。</p>
+		{#if sessionError}<p class="alert" role="alert">{sessionError}</p>{/if}
+		<button type="button" class="danger" disabled={endingSessions} onclick={logoutAll}>{endingSessions ? '退出中…' : '退出所有设备'}</button>
+	</section>
+{/if}
+
+{#if version && !data.mustChangePassword}
 	<p class="muted version">
 		南天门 <span class="mono">{version.version}</span>{#if version.commit}（提交 <span class="mono">{version.commit}</span>）{/if}
 	</p>

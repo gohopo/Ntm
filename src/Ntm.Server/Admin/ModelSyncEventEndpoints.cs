@@ -53,10 +53,20 @@ internal static class ModelSyncEventEndpoints
     /// <summary>「知道了」：把现在所有没确认的事件一次确认掉。</summary>
     private static async Task<IResult> AcknowledgeAsync(ConfigDbContext db, CancellationToken cancellationToken)
     {
-        await db.ModelSyncEvents
+        int affected = await db.ModelSyncEvents
             .Where(e => !e.Acknowledged)
             .ExecuteUpdateAsync(s => s.SetProperty(e => e.Acknowledged, true), cancellationToken)
             .ConfigureAwait(false);
+        if (affected > 0)
+        {
+            Ntm.Gateway.Audit.AuditScope.Current?.RecordChange(new Ntm.Gateway.Audit.AuditChange
+            {
+                Entity = nameof(ModelSyncEvent),
+                State = "modified",
+                Fields = nameof(ModelSyncEvent.Acknowledged),
+            });
+        }
+
         return TypedResults.NoContent();
     }
 }

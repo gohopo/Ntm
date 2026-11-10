@@ -36,16 +36,29 @@ catch (NtmStartupException ex)
     return 1;
 }
 
-// 最先跑：后面的 cookie Secure 判断和登录限流都要看到真实的协议和来源地址（Q129）。
+// 在 UseForwardedHeaders 之前看原始请求头：没配可信代理时它不会改，但要提醒（Q352）。
+ForwardedHeadersMonitor forwardedMonitor = app.Services.GetRequiredService<ForwardedHeadersMonitor>();
+app.Use((context, next) =>
+{
+    forwardedMonitor.Inspect(context.Request);
+    return next(context);
+});
+
+// 尽早跑：后面的 cookie Secure 判断和登录限流都要看到真实的协议和来源地址（Q129）。
 app.UseForwardedHeaders();
 app.UseExceptionHandler();
 app.UseNtmSecurityHeaders();
+
+// 改数据的管理接口先挡掉跨站请求和非 JSON 请求体（Q351，ADR-0023）。
+app.UseNtmCrossSiteGuard();
 
 // 前端静态文件不要求登录：登录页本身也是静态文件。
 app.UseStaticFiles();
 app.UseAuthentication();
 app.UseAuthorization();
-app.UseRateLimiter();
+
+// 管理接口上成功的改动写进操作记录（Q358）。放在授权之后：没登录的请求进不来。
+app.UseNtmAdminAudit();
 
 // 不要求登录：容器和负载均衡器的健康检查用它（Q338）。
 app.MapGet("/healthz", HealthEndpoint.HandleAsync);
@@ -54,6 +67,10 @@ app.MapGet("/healthz", HealthEndpoint.HandleAsync);
 if (app.Configuration.GetValue<bool>($"{MetricsOptions.SectionName}:{nameof(MetricsOptions.Enabled)}"))
 {
     app.MapGet("/metrics", MetricsEndpoint.Handle);
+    if (string.IsNullOrEmpty(app.Configuration[$"{MetricsOptions.SectionName}:{nameof(MetricsOptions.Token)}"]))
+    {
+        StartupLog.MetricsWithoutToken(app.Logger);
+    }
 }
 
 app.MapPost(

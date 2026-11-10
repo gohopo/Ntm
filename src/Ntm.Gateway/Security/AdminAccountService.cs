@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.Configuration;
 using Ntm.Gateway.Data;
 
@@ -11,11 +12,16 @@ public enum PasswordChangeStatus
     Changed = 1,
     WrongCurrentPassword = 2,
     TooShort = 3,
+    UnchangedGeneratedPassword = 4,
 }
 
 /// <param name="Status">结果。</param>
 /// <param name="SessionVersion">改成功后的新会话版本；当前会话要用它重新签发 Cookie。</param>
 public readonly record struct PasswordChangeResult(PasswordChangeStatus Status, int SessionVersion);
+
+/// <param name="SessionVersion">当前会话版本。</param>
+/// <param name="MustChangePassword">还在用网关生成的密码，必须先改（Q349）。</param>
+public readonly record struct AdminSessionState(int SessionVersion, bool MustChangePassword);
 
 /// <summary>
 /// 管理员账号：首次启动建号、登录校验、改密码、命令行重置（Q33）。
@@ -36,7 +42,11 @@ public sealed class AdminAccountService(ConfigDbContext db, IConfiguration confi
 
     private const int GeneratedPasswordLength = 20;
 
-    private static readonly PasswordHasher<AdminAccount> Hasher = new();
+    /// <summary>PBKDF2-HMAC-SHA512 的迭代次数，按 OWASP 的建议取 22 万（Q355）。旧哈希在下次登录成功时重算。</summary>
+    public const int PasswordHashIterations = 220_000;
+
+    private static readonly PasswordHasher<AdminAccount> Hasher = new(
+        Microsoft.Extensions.Options.Options.Create(new PasswordHasherOptions { IterationCount = PasswordHashIterations }));
 
     /// <summary>
     /// 库里没有管理员就建一个：有 <see cref="InitialPasswordVariable"/> 用它，没有就生成随机密码。
@@ -45,6 +55,8 @@ public sealed class AdminAccountService(ConfigDbContext db, IConfiguration confi
     /// <exception cref="InvalidOperationException">环境变量给的密码太短。宁可启动失败，也不悄悄换成别的密码。</exception>
     public async Task<string?> EnsureCreatedAsync(CancellationToken cancellationToken = default)
     {
+        // SQLite 的非延迟事务先取得写锁，多个进程同时首次启动也只能创建一次。
+        await using IDbContextTransaction transaction = await db.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
         if (await db.AdminAccounts.AnyAsync(cancellationToken).ConfigureAwait(false))
         {
             return null;
@@ -74,10 +86,14 @@ public sealed class AdminAccountService(ConfigDbContext db, IConfiguration confi
             PasswordHash = string.Empty,
             CreatedAt = now,
             PasswordChangedAt = now,
+
+            // 生成的密码打印在启动日志里，谁能看日志谁就知道它（Q349）。
+            MustChangePassword = generated is not null,
         };
         account.PasswordHash = Hasher.HashPassword(account, password);
         db.AdminAccounts.Add(account);
         await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
         return generated;
     }
 
@@ -86,6 +102,8 @@ public sealed class AdminAccountService(ConfigDbContext db, IConfiguration confi
     {
         ArgumentNullException.ThrowIfNull(password);
 
+        // 验证与可能的重哈希是一件事：不能用旧密码验证后覆盖另一个进程刚重置的哈希。
+        await using IDbContextTransaction transaction = await db.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
         AdminAccount? account = await FindAsync(cancellationToken).ConfigureAwait(false);
         if (account is null)
         {
@@ -100,20 +118,40 @@ public sealed class AdminAccountService(ConfigDbContext db, IConfiguration confi
 
         if (result == PasswordVerificationResult.SuccessRehashNeeded)
         {
-            account.PasswordHash = Hasher.HashPassword(account, password);
-            await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+            string hash = Hasher.HashPassword(account, password);
+            await db.AdminAccounts.Where(a => a.Id == AdminAccount.SingletonId)
+                .ExecuteUpdateAsync(setters => setters.SetProperty(a => a.PasswordHash, hash), cancellationToken)
+                .ConfigureAwait(false);
         }
 
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
         return account.SessionVersion;
     }
 
     /// <summary>当前会话版本。每个带 Cookie 的管理请求都要比一次，所以只读这一列、不跟踪实体。</summary>
-    public Task<int?> GetSessionVersionAsync(CancellationToken cancellationToken = default) =>
-        db.AdminAccounts
+    public async Task<int?> GetSessionVersionAsync(CancellationToken cancellationToken = default) =>
+        (await GetSessionStateAsync(cancellationToken).ConfigureAwait(false))?.SessionVersion;
+
+    /// <summary>会话版本和「必须改密码」标志，只读这两列、不跟踪实体。</summary>
+    public async Task<AdminSessionState?> GetSessionStateAsync(CancellationToken cancellationToken = default)
+    {
+        var row = await db.AdminAccounts
             .AsNoTracking()
             .Where(a => a.Id == AdminAccount.SingletonId)
-            .Select(a => (int?)a.SessionVersion)
-            .FirstOrDefaultAsync(cancellationToken);
+            .Select(a => new { a.SessionVersion, a.MustChangePassword })
+            .FirstOrDefaultAsync(cancellationToken)
+            .ConfigureAwait(false);
+        return row is null ? null : new AdminSessionState(row.SessionVersion, row.MustChangePassword);
+    }
+
+    /// <summary>「退出所有设备」（Q354）：会话版本加一，包括当前会话在内的所有会话失效。密码不变。</summary>
+    public async Task RevokeSessionsAsync(CancellationToken cancellationToken = default)
+    {
+        // 在库里原子递增，不把两个同时读到 v1 的退出操作都写成 v2。
+        await db.AdminAccounts.Where(a => a.Id == AdminAccount.SingletonId)
+            .ExecuteUpdateAsync(setters => setters.SetProperty(a => a.SessionVersion, a => a.SessionVersion + 1), cancellationToken)
+            .ConfigureAwait(false);
+    }
 
     public async Task<PasswordChangeResult> ChangePasswordAsync(
         string currentPassword,
@@ -123,6 +161,8 @@ public sealed class AdminAccountService(ConfigDbContext db, IConfiguration confi
         ArgumentNullException.ThrowIfNull(currentPassword);
         ArgumentNullException.ThrowIfNull(newPassword);
 
+        // 与 CLI 重置、其他会话改密码互斥；事务外验证旧密码会产生“重置后被旧请求改回去”的窗口。
+        await using IDbContextTransaction transaction = await db.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
         // 先验旧密码再看新密码：没有旧密码的人连「新密码太短」这种信息也拿不到。
         AdminAccount? account = await FindAsync(cancellationToken).ConfigureAwait(false);
         if (account is null
@@ -136,32 +176,40 @@ public sealed class AdminAccountService(ConfigDbContext db, IConfiguration confi
             return new PasswordChangeResult(PasswordChangeStatus.TooShort, account.SessionVersion);
         }
 
-        SetPassword(account, newPassword);
-        await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
-        return new PasswordChangeResult(PasswordChangeStatus.Changed, account.SessionVersion);
+        if (account.MustChangePassword && string.Equals(currentPassword, newPassword, StringComparison.Ordinal))
+        {
+            return new PasswordChangeResult(PasswordChangeStatus.UnchangedGeneratedPassword, account.SessionVersion);
+        }
+
+        await ReplacePasswordAsync(account, newPassword, mustChange: false, cancellationToken).ConfigureAwait(false);
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        return new PasswordChangeResult(PasswordChangeStatus.Changed, account.SessionVersion + 1);
     }
 
     /// <summary>
-    /// 命令行重置：生成新的随机密码并返回，所有会话失效。账号不存在就建一个。
+    /// 命令行重置：生成新的随机密码并返回，所有会话失效，并标成必须改密码。账号不存在就建一个。
     /// 不接受从参数传入密码，免得它留在 shell 历史里。
     /// </summary>
     public async Task<string> ResetAsync(CancellationToken cancellationToken = default)
     {
         string password = GeneratePassword();
+        await using IDbContextTransaction transaction = await db.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
         AdminAccount? account = await FindAsync(cancellationToken).ConfigureAwait(false);
         if (account is null)
         {
             DateTimeOffset now = timeProvider.GetUtcNow();
-            account = new AdminAccount { PasswordHash = string.Empty, CreatedAt = now, PasswordChangedAt = now };
+            account = new AdminAccount { PasswordHash = string.Empty, CreatedAt = now, PasswordChangedAt = now, MustChangePassword = true };
             account.PasswordHash = Hasher.HashPassword(account, password);
             db.AdminAccounts.Add(account);
+            await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
         }
         else
         {
-            SetPassword(account, password);
+            // 新密码印在终端里，可能留在终端记录或 CI 日志中，登录后先改掉（Q349）。
+            await ReplacePasswordAsync(account, password, mustChange: true, cancellationToken).ConfigureAwait(false);
         }
 
-        await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
         return password;
     }
 
@@ -170,12 +218,18 @@ public sealed class AdminAccountService(ConfigDbContext db, IConfiguration confi
         RandomNumberGenerator.GetString(PasswordAlphabet, GeneratedPasswordLength);
 
     private Task<AdminAccount?> FindAsync(CancellationToken cancellationToken) =>
-        db.AdminAccounts.FirstOrDefaultAsync(a => a.Id == AdminAccount.SingletonId, cancellationToken);
+        // 同一服务可能在别的 DbContext 改密码前读过账号；不能复用跟踪器中的旧哈希和版本。
+        db.AdminAccounts.AsNoTracking().FirstOrDefaultAsync(a => a.Id == AdminAccount.SingletonId, cancellationToken);
 
-    private void SetPassword(AdminAccount account, string password)
+    private Task<int> ReplacePasswordAsync(AdminAccount account, string password, bool mustChange, CancellationToken cancellationToken)
     {
-        account.PasswordHash = Hasher.HashPassword(account, password);
-        account.SessionVersion++;
-        account.PasswordChangedAt = timeProvider.GetUtcNow();
+        string hash = Hasher.HashPassword(account, password);
+        DateTimeOffset changedAt = timeProvider.GetUtcNow();
+        return db.AdminAccounts.Where(a => a.Id == AdminAccount.SingletonId)
+            .ExecuteUpdateAsync(setters => setters
+                .SetProperty(a => a.PasswordHash, hash)
+                .SetProperty(a => a.SessionVersion, a => a.SessionVersion + 1)
+                .SetProperty(a => a.PasswordChangedAt, changedAt)
+                .SetProperty(a => a.MustChangePassword, mustChange), cancellationToken);
     }
 }

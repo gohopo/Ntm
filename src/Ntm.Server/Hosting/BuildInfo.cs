@@ -38,4 +38,10 @@ internal static partial class StartupLog
 {
     [LoggerMessage(EventId = 5101, Level = LogLevel.Information, Message = "南天门 {Version}（提交 {Commit}）正在启动")]
     public static partial void Starting(ILogger logger, string version, string commit);
+
+    [LoggerMessage(
+        EventId = 5102,
+        Level = LogLevel.Warning,
+        Message = "/metrics 已开启但没有设置令牌（Ntm__Metrics__Token），谁都能读到渠道和用量统计。")]
+    public static partial void MetricsWithoutToken(ILogger logger);
 }

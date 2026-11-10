@@ -2,7 +2,7 @@
 	import { resolve } from '$app/paths';
 	import { onMount } from 'svelte';
 	import { api, ApiError, messageOf } from '#lib/api.ts';
-	import { formatTime } from '#lib/format.ts';
+	import { formatTime, isExpired } from '#lib/format.ts';
 	import type { CreatedApiKeyView, ApiKeyView } from '#lib/types.ts';
 
 	let apiKeys = $state<ApiKeyView[]>([]);
@@ -10,6 +10,9 @@
 	let error = $state<string | null>(null);
 
 	let name = $state('');
+	let expiresAt = $state('');
+	let expiryError = $state<string | null>(null);
+	let now = $state(Date.now());
 	let nameError = $state<string | null>(null);
 	let creating = $state(false);
 	let created = $state<CreatedApiKeyView | null>(null);
@@ -29,20 +32,28 @@
 		}
 	}
 
-	onMount(load);
+	onMount(() => {
+		void load();
+		const timer = setInterval(() => (now = Date.now()), 30_000);
+		return () => clearInterval(timer);
+	});
 
 	async function create(event: SubmitEvent) {
 		event.preventDefault();
 		creating = true;
 		nameError = null;
+		expiryError = null;
 		created = null;
 		copied = false;
 		try {
-			created = await api.post<CreatedApiKeyView>('/api/api-keys', { name: name.trim() });
+			created = await api.post<CreatedApiKeyView>('/api/api-keys', { name: name.trim(), expiresAt: expiresAt ? new Date(expiresAt).toISOString() : null });
 			name = '';
+			expiresAt = '';
 			await load();
 		} catch (e) {
-			if (e instanceof ApiError && e.field('name')) {
+			if (e instanceof ApiError && e.field('expiresAt')) {
+				expiryError = e.field('expiresAt') ?? null;
+			} else if (e instanceof ApiError && e.field('name')) {
 				nameError = e.field('name') ?? null;
 			} else {
 				nameError = messageOf(e);
@@ -109,6 +120,11 @@
 			aria-describedby={nameError ? 'apiKey-name-error' : undefined}
 		/>
 	</label>
+	<label class="field">
+		<span>过期时间（可选，本地时区）</span>
+		<input type="datetime-local" step="1" bind:value={expiresAt} aria-invalid={expiryError ? 'true' : undefined} aria-describedby="expiry-hint" />
+		<span id="expiry-hint" class="hint">留空表示永不过期。</span>
+	</label>
 	<button class="primary" type="submit" disabled={creating || name.trim().length === 0}>
 		{creating ? '创建中…' : '创建 API 密钥'}
 	</button>
@@ -116,6 +132,8 @@
 {#if nameError}
 	<p id="apiKey-name-error" class="error" role="alert">{nameError}</p>
 {/if}
+
+{#if expiryError}<p class="error" role="alert">{expiryError}</p>{/if}
 
 {#if created}
 	<div class="notice" role="status">
@@ -142,6 +160,7 @@
 			<th scope="col">状态</th>
 			<th scope="col">创建时间</th>
 			<th scope="col">最近使用</th>
+			<th scope="col">过期时间</th>
 			<th scope="col"><span class="visually-hidden">操作</span></th>
 		</tr>
 	</thead>
@@ -152,9 +171,11 @@
 				<td class="mono">{apiKey.prefix}…</td>
 				<td>
 					<span class={apiKey.enabled ? 'ok' : 'muted'}>{apiKey.enabled ? '启用' : '已停用'}</span>
+					{#if isExpired(apiKey.expiresAt, now)}<span class="badge error">已过期</span>{/if}
 				</td>
 				<td>{formatTime(apiKey.createdAt)}</td>
 				<td>{formatTime(apiKey.lastUsedAt)}</td>
+				<td>{apiKey.expiresAt ? formatTime(apiKey.expiresAt) : '永不过期'}</td>
 				<td class="row-actions">
 					<button type="button" onclick={() => toggle(apiKey)} disabled={busyId === apiKey.id}>
 						{apiKey.enabled ? '停用' : '启用'}
@@ -172,7 +193,7 @@
 			</tr>
 		{:else}
 			<tr>
-				<td colspan="6" class="muted">{loading ? '加载中…' : '还没有 API 密钥。'}</td>
+				<td colspan="7" class="muted">{loading ? '加载中…' : '还没有 API 密钥。'}</td>
 			</tr>
 		{/each}
 	</tbody>

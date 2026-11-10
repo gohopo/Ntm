@@ -175,7 +175,15 @@ public sealed partial class PriceCatalogService : IDisposable
                         response.StatusCode);
                 }
 
-                await using Stream body = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
+                long maxBytes = _options.Value.MaxCatalogBytes;
+                if (response.Content.Headers.ContentLength > maxBytes)
+                {
+                    throw new InvalidDataException(SizeLimitedStream.TooLarge(maxBytes));
+                }
+
+                await using Stream body = new SizeLimitedStream(
+                    await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false),
+                    maxBytes);
                 ParsedCatalog parsed = await ModelsDevParser.ParseAsync(body, declared, cancellationToken).ConfigureAwait(false);
                 if (parsed.Providers.Count == 0)
                 {

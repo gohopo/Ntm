@@ -429,6 +429,9 @@ namespace Ntm.Gateway.Data.Migrations.Config
                     b.Property<long>("CreatedAt")
                         .HasColumnType("INTEGER");
 
+                    b.Property<bool>("MustChangePassword")
+                        .HasColumnType("INTEGER");
+
                     b.Property<long>("PasswordChangedAt")
                         .HasColumnType("INTEGER");
 
