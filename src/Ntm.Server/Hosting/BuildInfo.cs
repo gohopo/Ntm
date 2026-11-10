@@ -3,8 +3,8 @@ using System.Reflection;
 namespace Ntm.Server.Hosting;
 
 /// <summary>
-/// 版本号只从发版的 git 标签来（Q335）：发布流程用 <c>-p:Version=X.Y.Z -p:SourceRevisionId=提交</c> 构建，
-/// 其他构建都是 <c>0.0.0-dev</c>。提交号来自 InformationalVersion 的 <c>+</c> 后缀。
+/// 发布流程传入版本与提交（Q335/Q369）：正式版本为 X.Y.Z，手动测试镜像为 0.0.0-edge，
+/// 本地默认构建为 <c>0.0.0-dev</c>。提交号来自 InformationalVersion 的 <c>+</c> 后缀。
 /// </summary>
 internal static class BuildInfo
 {

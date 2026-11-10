@@ -13,8 +13,8 @@
     <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
     <InvariantGlobalization>true</InvariantGlobalization>
     <GenerateDocumentationFile>false</GenerateDocumentationFile>
-    <!-- 版本号由 release-please 发版时定（ADR-0022）：发布流程传 -p:Version=X.Y.Z -p:SourceRevisionId=提交，
-         其他构建一律是 0.0.0-dev，免得把 SDK 默认的 1.0.0 当成真版本。 -->
+    <!-- 发布流程传入正式版本或 0.0.0-edge，以及 SourceRevisionId（ADR-0022）；
+         未传版本时默认 0.0.0-dev，免得把 SDK 默认的 1.0.0 当成真版本。 -->
     <Version Condition="'$(Version)' == ''">0.0.0-dev</Version>
   </PropertyGroup>
 

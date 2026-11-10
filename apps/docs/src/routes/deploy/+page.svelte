@@ -103,6 +103,29 @@ ASPNETCORE_ENVIRONMENT=Development dotnet run --project src/Ntm.Server`;
 
 <p>其余配置项见<a href={resolve('/configuration')}>配置参考</a>，一般不用动。</p>
 
+<Heading id="edge">手动构建测试镜像</Heading>
+
+<p>
+	需要在正式发版前试跑时，打开仓库的 <a href="https://github.com/gohopo/Ntm/actions/workflows/release.yml">Actions → 发版</a>，点击
+	<strong>Run workflow</strong>，选择分支或标签后运行，默认选择 main。工作流会固定到当次选中的提交，先跑三套后端测试、前端检查、管理页面构建和文档站构建，全部通过后再发布测试镜像。
+</p>
+
+<Code code="docker pull gohopo/ntm:edge" label="拉取测试镜像" />
+
+<p>
+	<code>edge</code> 提供 amd64 和 arm64 两种架构。手动运行只更新这个标签，不执行 release-please，不创建 GitHub Release，也不更新
+	<code>latest</code> 或版本号标签。正式发版仍由合并发布 PR 触发，仓库里的 Compose 默认镜像仍是 <code>latest</code>。
+</p>
+
+<p>
+	所有分支共用一个 <code>edge</code> 标签，最后成功发布的手动构建会覆盖它；检查失败则保留原来的镜像。运行后可在「设置」页、启动日志或
+	<code>/healthz</code> 看到版本 <code>0.0.0-edge</code> 和实际提交号。工作流不发布提交号标签，需要精确固定镜像内容时可使用镜像的 digest。
+</p>
+
+<p class="warn">
+	试用 edge 建议使用独立的数据卷。它也会在启动时应用数据库迁移；如果已经写入旧版本不认识的迁移，直接把镜像改回 <code>latest</code> 或旧版本号不会还原数据库，需要恢复测试前的<a href="#backup">备份</a>。
+</p>
+
 <Heading id="data">数据目录</Heading>
 
 <p>所有数据都在容器的 <code>/app/data</code>，compose 里挂的是命名卷 <code>ntm-data</code>。里面有：</p>
