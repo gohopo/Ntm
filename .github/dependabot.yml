@@ -20,6 +20,10 @@ updates:
       include: scope
     schedule:
       interval: weekly
+    # TypeScript 7 不提供 SvelteKit 3 / svelte-check 所需的 JS compiler API；支持后再解除。
+    ignore:
+      - dependency-name: typescript
+        versions: ['7.x']
     groups:
       npm:
         patterns: ['*']
