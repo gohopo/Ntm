@@ -6,7 +6,7 @@
 # 多架构镜像不用模拟 arm64（Q336）。只有最后一段按目标架构换基础镜像。
 
 # ---- 前端 ----
-FROM --platform=$BUILDPLATFORM node:25-slim AS web
+FROM --platform=$BUILDPLATFORM node:26-slim AS web
 WORKDIR /src
 RUN npm install --global pnpm@12.15.0
 # 先只拷清单装依赖，源码改了不用重装。apps/docs 的清单也要在：锁文件里有它。
@@ -19,7 +19,7 @@ COPY apps/web apps/web
 RUN pnpm --filter web build
 
 # ---- 后端 ----
-FROM --platform=$BUILDPLATFORM mcr.microsoft.com/dotnet/sdk:10.0 AS server
+FROM --platform=$BUILDPLATFORM mcr.microsoft.com/dotnet/sdk:11.0 AS server
 # 版本号和提交由发布流程传进来（Q335）；本地构建就是 0.0.0-dev。
 ARG VERSION=0.0.0-dev
 ARG REVISION=
