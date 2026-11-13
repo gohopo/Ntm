@@ -19,7 +19,7 @@ COPY apps/web apps/web
 RUN pnpm --filter web build
 
 # ---- 后端 ----
-FROM --platform=$BUILDPLATFORM mcr.microsoft.com/dotnet/sdk:10.0 AS server
+FROM --platform=$BUILDPLATFORM mcr.microsoft.com/dotnet/sdk:11.0 AS server
 # 版本号和提交由发布流程传进来（Q335）；本地构建就是 0.0.0-dev。
 ARG VERSION=0.0.0-dev
 ARG REVISION=
